@@ -1,0 +1,162 @@
+# promptgate — Project Specification & Build Instructions
+
+You are building **promptgate**, a Python library published to PyPI. This document is the single source of truth for the project. Read it fully before writing any code. When a decision isn't covered here, choose the option that best serves the Design Principles below, and record the decision in `DECISIONS.md`.
+
+---
+
+## 1. Project Identity
+
+**One-line pitch:** *Every prompt you send is too expensive and too revealing. Fix both with one line.*
+
+promptgate is a **prompt firewall**: a lightweight, provider-agnostic layer that every message list passes through before it leaves the user's machine and reaches an LLM API. It does two jobs in one pipeline:
+
+1. **Save** — reduce token usage of conversation history (sliding window, stale tool-output truncation, later rolling summaries), targeting 50%+ reduction on long conversations and agent workloads.
+2. **Protect** — detect and mask secrets (API keys, tokens, private keys, credentials) and PII (emails, phones, etc.) so they never reach a third-party API.
+
+Pipeline order (fixed):
+
+```
+messages → scrub secrets → mask PII → truncate stale tool outputs → fit window to budget → validated output
+                      ↑ PII mapping stays in the caller's process ↑
+```
+
+This is NOT two features taped together. The unified `explain()` report showing both pillars in one output IS the product:
+
+```
+promptgate report
+─────────────────
+Tokens:  11,840 → 5,210  (56% saved)
+Secrets: 1 AWS key BLOCKED (one-way)
+PII:     3 emails, 1 phone masked (reversible)
+Structure: valid ✓
+```
+
+## 2. Design Principles (non-negotiable)
+
+1. **Stateless core.** The core is a pure function: full message list in, compressed/scrubbed list out. No database, no background jobs, no server. Any state the user needs across turns (the PII map) is *returned to the caller* and accepted back on the next call. Never store it internally between unrelated conversations.
+2. **Zero required dependencies.** Core install must work with stdlib only. `tiktoken` is an optional extra (`pip install promptgate[openai]`). Every dependency added to core requires justification in `DECISIONS.md`. Heavy NER (Presidio/spaCy) may ONLY ever be an optional extra (`[privacy]`), and not in Phase 1.
+3. **Never break message structure.** Compression must never orphan a tool-result from its tool-call, drop the most recent user message, strip the system prompt, or emit invalid role sequences. Handling these edge cases IS the product. Every strategy runs through `safety.repair()` and `safety.validate()` before returning.
+4. **Identity is a feature.** If input already fits the budget and contains nothing to scrub, output must equal input exactly.
+5. **Secrets are one-way; PII is reversible.** A real API key must never flow back through this library (default). PII placeholders are rehydrated via the caller-held mapping. This asymmetry is deliberate — document it.
+6. **Pessimistic token counting.** When using the heuristic fallback, round up. Never overflow a user's budget.
+7. **Trust through transparency.** `explain()` (dry-run mode) shows exactly what WOULD be cut/masked and why, without mutating anything. Report secret *labels/categories only* — never echo secret values, not even in logs, warnings, exceptions, or test output.
+8. **Small public API.** One class (`Gate`), a handful of methods. If a user can't get value in five lines, we've overbuilt.
+
+## 3. Public API Contract
+
+```python
+from promptgate import Gate
+
+gate = Gate(
+    budget=8000,                      # int | None (None = no compression, scrub only)
+    compress="hybrid",                # "window" | "truncate_tools" | "hybrid" (default)
+    scrub=["secrets", "email", "phone"],  # categories; secrets on by default, names are future/opt-in
+    on_secret="warn",                 # "mask" | "warn" | "raise"
+    keep_last=6,                      # messages always kept verbatim at the tail
+    pin=["system"],                   # roles or message indices never compressed
+    counter=None,                     # optional custom callable(text) -> int
+)
+
+safe_messages, pii_map = gate.prepare(messages)       # main entry point
+report = gate.explain(messages)                       # dry-run; mutates nothing
+restored = gate.rehydrate(llm_reply_text, pii_map)    # PII only; secrets never restored by default
+```
+
+- `messages` are OpenAI-style dicts: `{"role": "...", "content": str | list-of-parts, ...}` with optional `tool_calls` / `tool_call_id` / `name`. Anthropic/Gemini adapters are Phase 2 — design `Gate` so message-format handling is isolated in one module (`formats.py`) to make that easy.
+- `pii_map` is `{placeholder: original_value}`. Same original value must map to the same placeholder across the entire conversation (consistency across turns), including across successive `prepare()` calls when the caller passes the prior map back in via `gate.prepare(messages, pii_map=prior_map)`.
+- Placeholders use a collision-proof format: `[[EMAIL_1]]`, `[[SECRET_AWS_1]]`. `rehydrate()` must tolerate light model mangling (`[[ EMAIL_1 ]]`, `EMAIL_1`, `[EMAIL_1]`).
+- `explain()` returns a structured report object AND has a `__str__` producing the human-readable block shown in §1.
+- Multimodal content (image parts): detect and pass through untouched, uncounted beyond text parts. Document as a v1 known limitation.
+
+## 4. Module Layout
+
+```
+promptgate/
+├── src/promptgate/
+│   ├── __init__.py          # exports Gate, Scrubber, SecretFound, __version__
+│   ├── gate.py              # Gate class: orchestrates scrub → compress → validate
+│   ├── scrub.py             # Scrubber, ScrubReport, SecretFound, pattern sets
+│   ├── counters.py          # count_text/count_message/count_messages; tiktoken optional
+│   ├── safety.py            # repair() + validate() for message structure
+│   ├── formats.py           # message-format helpers (content flattening; adapter seam)
+│   ├── report.py            # ExplainReport dataclass + rendering
+│   └── strategies/
+│       ├── __init__.py
+│       ├── window.py        # sliding window w/ pinning
+│       └── tool_truncate.py # stale tool-output stubbing
+├── tests/                   # pytest; mirrors module layout
+├── benchmarks/
+│   ├── run.py               # replay transcripts, output the hero table (markdown)
+│   ├── generate.py          # synthetic transcript generator (no API needed: templated)
+│   └── transcripts/         # JSON conversations, 50+ turns, with planted facts/secrets
+├── .github/workflows/ci.yml # pytest on Python 3.9–3.12, ruff lint
+├── pyproject.toml           # hatchling; zero required deps; [openai] and [dev] extras
+├── README.md
+├── SECURITY.md
+├── DECISIONS.md
+├── CHANGELOG.md
+└── LICENSE                  # MIT
+```
+
+## 5. Detection Specifications (scrub.py)
+
+**Secrets — three layers, applied in this order:**
+
+1. **Multi-line PEM blocks FIRST** (`-----BEGIN ... PRIVATE KEY----- ... -----END ...-----`), treated as one atomic unit. Half-masking a key block leaks structure — never do it.
+2. **Known-prefix patterns** (near-zero false positives). Minimum set: Anthropic `sk-ant-`, OpenAI `sk-`, AWS `AKIA/ASIA`, GitHub `ghp_/gho_/ghu_/ghs_/ghr_`, Slack `xox[baprs]-`, Google `AIza`, Stripe `sk_live_/rk_live_`, JWTs (`eyJ...` three-segment), `Bearer <blob>`. Patterns are informed by gitleaks (MIT) and detect-secrets (Apache 2.0) — credit both in README. Order matters: match `sk-ant-` before generic `sk-`.
+3. **Context-keyword assignments**: `password=`, `api_key:`, `secret =`, `token:` followed by a value; connection strings with embedded credentials (`scheme://user:PASS@host`). Mask ONLY the secret value, preserve the readable prefix.
+4. **Entropy detection is OPT-IN** (`entropy_threshold` param, default None) — it's a false-positive factory (git SHAs, UUIDs, base64). High threshold + min length 24 when enabled.
+
+**`on_secret` behavior:** `"mask"` = silent; `"warn"` = message to callback or stderr saying the credential should be ROTATED (a found live secret is a security event — it's probably in logs/shell history already); `"raise"` = raise `SecretFound` for strict pipelines. Never include the secret value in any warning or exception text.
+
+**PII (Phase 1: regex only):** email, phone (NA formats), credit card (13–16 digits with separators), SSN, IP address. Category-configurable; conservative defaults (`["secrets", "email", "phone"]`). Names/addresses via NER are Phase 3, optional extra only.
+
+## 6. Compression Specifications (strategies/)
+
+**tool_truncate:** Tool results older than the last `keep_recent_turns=1` assistant turns AND larger than `stub_threshold_tokens=120` become stubs preserving shape: `[tool result truncated: {name} returned ~{n:,} tokens]`. This is the differentiator — in agent workloads stale tool output is often 60–70% of context.
+
+**window:** Keep pinned messages (system prompt always) + walk backward from the tail adding messages until budget is exhausted. Never evict the most recent user message. After eviction, run `safety.repair()` to drop orphaned tool results, then re-check budget.
+
+**hybrid (default):** tool_truncate first, then window only if still over budget.
+
+**Edge cases with required behavior (write tests for each):**
+- Already under budget → return unchanged (identity).
+- Single message alone exceeds budget → keep it, return it, emit a warning in the report; never return an empty list.
+- Conversation with zero assistant messages → window only.
+- Tool-call message evicted but its result survives → `repair()` drops the result.
+- Empty message list → return empty list.
+
+## 7. Testing & Quality Bar
+
+- **pytest**, target ≥90% line coverage on `scrub.py`, `safety.py`, `strategies/`.
+- Secrets tests MUST use obviously fake values (e.g., `AKIA` + `EXAMPLE` padding, `sk-ant-` + `x`-padding). Never realistic-looking live-format keys in the repo — the repo itself must pass a gitleaks scan cleanly. Add a CI step that runs gitleaks against the repo.
+- Property-style tests: scrub is idempotent (scrubbing twice = scrubbing once); rehydrate(scrub(x)) restores PII exactly for clean placeholders; prepare() output always passes `validate()`.
+- Full type hints + `py.typed` marker. `ruff` for lint/format. Python 3.9–3.12 matrix in CI.
+- Every public function has a docstring with an example.
+
+## 8. Benchmarks (this is the marketing — treat as a first-class deliverable)
+
+`benchmarks/generate.py` creates synthetic 50-turn agent transcripts (templated, no API calls needed) with: verbose fake tool outputs, 5 planted recall-facts per transcript (names, numbers, decisions planted in early turns), and planted fake secrets/PII.
+
+`benchmarks/run.py` outputs a markdown table with, per strategy: **tokens before → after (% saved)**, **recall-facts surviving in compressed context (%)** (a fact "survives" if its text still appears in the compressed messages — simple string check for v1; LLM-judge is Phase 2), and **secrets/PII catch rate (%)** against the planted set. This table goes at the top of the README. Do not overclaim: report per-workload numbers, never a blanket "50% on everything."
+
+## 9. README Requirements
+
+Order: (1) one-line pitch, (2) the `explain()` hero output block, (3) the benchmark table, (4) 5-line quickstart, (5) "Save" section, (6) "Protect" section incl. the one-way-secrets vs reversible-PII asymmetry, (7) known limitations (multimodal passthrough, regex-only PII, NA-centric phone formats), (8) roadmap, (9) credits (gitleaks, detect-secrets). Badges: PyPI version, CI status, license, Python versions.
+
+`SECURITY.md`: threat model — what promptgate protects against (accidental secret/PII transmission to LLM APIs) and explicitly what it does NOT (PII the regexes miss, secrets in images, malicious exfiltration, on-device attackers). Honest scoping builds more trust than overclaiming. Include vulnerability-report contact.
+
+## 10. Roadmap (build Phase 1 ONLY unless told otherwise)
+
+- **Phase 1 (v0.1.0, current):** everything in §3–§9 above. Ship quality over feature count.
+- **Phase 2 (v0.2):** rolling incremental summarization (bring-your-own cheap model callable, summarize evicted messages every ~10 turns, fold-in not re-summarize); Anthropic + Gemini format adapters; LLM-judge quality metric in benchmarks.
+- **Phase 3 (v0.3):** `[privacy]` extra with Presidio NER for names/addresses; key-facts extraction block alongside summaries.
+- **Out of scope (do not build, decline politely if asked by issues):** proxy server mode, team policies, audit logs, framework adapters in core (they live in a future `promptgate-integrations` repo).
+
+## 11. Working Agreements for Claude Code
+
+- Work in small, reviewable commits with conventional-commit messages (`feat:`, `fix:`, `test:`, `docs:`). Run the full test suite before every commit; never commit red.
+- When you make a non-obvious choice, append one line to `DECISIONS.md` (date, decision, why).
+- If a requirement in this file conflicts with something you believe is better, STOP and ask — do not silently deviate from the Design Principles in §2.
+- Do not add dependencies, config files, or abstractions "for later." YAGNI. The ceiling is high but the floor ships this week.
+- Definition of done for v0.1.0: all §6 edge-case tests pass, gitleaks CI step green, coverage bar met, benchmark table generated and embedded in README, `pip install -e .` + the §3 five-liner works in a fresh venv on Python 3.9.
