@@ -31,6 +31,9 @@ jobs:
       - name: Test with coverage
         run: pytest --cov=promptgate --cov-report=term-missing --cov-fail-under=90
 
+      - name: Doctest examples
+        run: pytest --doctest-modules src/promptgate
+
   gitleaks:
     runs-on: ubuntu-latest
     steps:

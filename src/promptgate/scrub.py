@@ -140,8 +140,8 @@ class Scrubber:
     Example:
         >>> scrubber = Scrubber(categories=["email"])
         >>> text, report, pii_map = scrubber.scrub_text("contact bob@example.com")
-        >>> "email" in report.pii_counts
-        True
+        >>> report.pii_counts
+        {'EMAIL': 1}
     """
 
     def __init__(
