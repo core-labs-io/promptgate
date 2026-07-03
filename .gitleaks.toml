@@ -1,0 +1,16 @@
+title = "promptgate gitleaks config"
+
+[extend]
+useDefault = true
+
+# promptgate's own test suite and benchmark fixtures deliberately contain
+# format-correct-but-fake secret values (see tests/test_scrub.py) so the
+# detection patterns in src/promptgate/scrub.py can be exercised. They are
+# not live credentials. Everything outside these paths is still scanned.
+[allowlist]
+description = "Deliberately fake, format-only secret fixtures used in tests and benchmarks"
+paths = [
+  '''^tests/.*''',
+  '''^benchmarks/transcripts/.*''',
+  '''^benchmarks/generate\.py$''',
+]
