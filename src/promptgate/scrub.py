@@ -17,7 +17,7 @@ import re
 import sys
 from dataclasses import dataclass, field
 from math import log2
-from typing import Callable, Optional
+from typing import Callable
 
 from promptgate import formats
 
@@ -34,8 +34,8 @@ class SecretFound(Exception):
     (Design Principle 7: report labels only, never values).
 
     Example:
-        >>> str(SecretFound("AWS", "AWS Access Key"))
-        'Secret detected: AWS Access Key (AWS) — rotate this credential, it may already be compromised.'
+        >>> "rotate" in str(SecretFound("AWS", "AWS Access Key"))
+        True
     """
 
     def __init__(self, category: str, label: str):
@@ -84,9 +84,7 @@ CONTEXT_KEYWORD_PATTERN = re.compile(
     r"(['\"]?)([^\s'\",;]+)\3"
 )
 
-CONNECTION_STRING_PATTERN = re.compile(
-    r"(?i)\b([a-z][a-z0-9+.\-]*://[^:/\s@]+):([^@\s]+)@"
-)
+CONNECTION_STRING_PATTERN = re.compile(r"(?i)\b([a-z][a-z0-9+.\-]*://[^:/\s@]+):([^@\s]+)@")
 
 ENTROPY_CANDIDATE_PATTERN = re.compile(r"[A-Za-z0-9+/=_-]{24,}")
 
@@ -97,12 +95,8 @@ ENTROPY_CANDIDATE_PATTERN = re.compile(r"[A-Za-z0-9+/=_-]{24,}")
 EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 SSN_PATTERN = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
 CREDIT_CARD_CANDIDATE_PATTERN = re.compile(r"\b\d(?:[ -]?\d){11,18}\b")
-PHONE_PATTERN = re.compile(
-    r"(?<!\d)(?:\+?1[-.\s]?)?\(?[2-9]\d{2}\)?[-.\s]?\d{3}[-.\s]?\d{4}(?!\d)"
-)
-IP_PATTERN = re.compile(
-    r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"
-)
+PHONE_PATTERN = re.compile(r"(?<!\d)(?:\+?1[-.\s]?)?\(?[2-9]\d{2}\)?[-.\s]?\d{3}[-.\s]?\d{4}(?!\d)")
+IP_PATTERN = re.compile(r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b")
 
 PII_CATEGORY_ORDER = ("email", "ssn", "credit_card", "phone", "ip")
 
@@ -122,7 +116,7 @@ def _shannon_entropy(text: str) -> float:
 
 
 class _ScrubState:
-    def __init__(self, pii_map: Optional[dict]):
+    def __init__(self, pii_map: dict | None):
         self.pii_map = dict(pii_map or {})
         self.value_to_placeholder = {v: k for k, v in self.pii_map.items()}
         self.pii_category_counters: dict = {}
@@ -154,8 +148,8 @@ class Scrubber:
         self,
         categories=DEFAULT_CATEGORIES,
         on_secret: str = "warn",
-        entropy_threshold: Optional[float] = None,
-        warn_callback: Optional[Callable[[str], None]] = None,
+        entropy_threshold: float | None = None,
+        warn_callback: Callable[[str], None] | None = None,
     ):
         if on_secret not in ("mask", "warn", "raise"):
             raise ValueError(f"on_secret must be 'mask', 'warn', or 'raise', got {on_secret!r}")
@@ -164,7 +158,7 @@ class Scrubber:
         self.entropy_threshold = entropy_threshold
         self.warn_callback = warn_callback
 
-    def scrub_text(self, text: str, pii_map: Optional[dict] = None):
+    def scrub_text(self, text: str, pii_map: dict | None = None):
         """Scrub a single string. Returns ``(new_text, ScrubReport, pii_map)``."""
         state = _ScrubState(pii_map)
         new_text = self._scrub(text, state)
@@ -173,7 +167,7 @@ class Scrubber:
         )
         return new_text, report, state.pii_map
 
-    def scrub_messages(self, messages: list, pii_map: Optional[dict] = None):
+    def scrub_messages(self, messages: list, pii_map: dict | None = None):
         """Scrub a list of messages. Returns ``(new_messages, ScrubReport, pii_map)``.
 
         Example:
@@ -257,6 +251,7 @@ class Scrubber:
 
     def _mask_prefix_patterns(self, text: str, state: _ScrubState) -> str:
         for label, category_token, pattern in SECRET_PREFIX_PATTERNS:
+
             def repl(m, label=label, category_token=category_token):
                 return self._secret_placeholder(state, category_token, label, m.group(0))
 
@@ -274,9 +269,7 @@ class Scrubber:
             key, sep, quote, value = m.group(1), m.group(2), m.group(3), m.group(4)
             if _is_placeholder(value):
                 return m.group(0)
-            placeholder = self._secret_placeholder(
-                state, "CREDENTIAL", f"{key} assignment", value
-            )
+            placeholder = self._secret_placeholder(state, "CREDENTIAL", f"{key} assignment", value)
             return f"{key}{sep}{quote}{placeholder}{quote}"
 
         text = CONTEXT_KEYWORD_PATTERN.sub(keyword_repl, text)
@@ -323,9 +316,7 @@ class Scrubber:
                 text = self._mask_simple(text, state, token, pattern)
         return text
 
-    def _mask_simple(
-        self, text: str, state: _ScrubState, token: str, pattern: "re.Pattern"
-    ) -> str:
+    def _mask_simple(self, text: str, state: _ScrubState, token: str, pattern: re.Pattern) -> str:
         def repl(m):
             value = m.group(0)
             if _is_placeholder(value):

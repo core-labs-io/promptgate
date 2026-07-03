@@ -89,9 +89,7 @@ class TestContextKeywords:
 
     def test_connection_string_password_masked(self):
         scrubber = Scrubber()
-        text, report, _ = scrubber.scrub_text(
-            "postgres://user:PASSWORDXXXX123@localhost:5432/db"
-        )
+        text, report, _ = scrubber.scrub_text("postgres://user:PASSWORDXXXX123@localhost:5432/db")
         assert "PASSWORDXXXX123" not in text
         assert "postgres://user:[[SECRET_CREDENTIAL_1]]@localhost:5432/db" == text
 
@@ -232,10 +230,7 @@ class TestCategoryFiltering:
 class TestIdempotency:
     def test_scrubbing_twice_equals_scrubbing_once(self):
         scrubber = Scrubber(categories=["secrets", "email", "phone", "ssn", "ip"])
-        original = (
-            f"{FAKE_AWS_KEY} password=hunterXXXX123 bob@example.com "
-            "415-555-0199 192.168.1.1"
-        )
+        original = f"{FAKE_AWS_KEY} password=hunterXXXX123 bob@example.com 415-555-0199 192.168.1.1"
         once, _, _ = scrubber.scrub_text(original)
         twice, report2, _ = scrubber.scrub_text(once)
         assert once == twice

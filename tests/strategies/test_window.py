@@ -81,9 +81,7 @@ class TestEdgeCases:
 
 class TestBudgetRespected:
     def test_evicts_oldest_first(self):
-        messages = [
-            msg("user", f"msg-{i} " + long_text(50)) for i in range(10)
-        ]
+        messages = [msg("user", f"msg-{i} " + long_text(50)) for i in range(10)]
         result, _ = window.apply(messages, budget=200, keep_last=2)
         # the most recent messages should be present, the earliest evicted
         assert messages[-1] in result

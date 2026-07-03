@@ -10,7 +10,7 @@ when it can't count exactly (Design Principle 6).
 from __future__ import annotations
 
 import math
-from typing import Callable, Optional
+from typing import Callable
 
 from promptgate.formats import get_text
 
@@ -51,7 +51,7 @@ def _heuristic_count(text: str) -> int:
     return math.ceil(len(text) / _HEURISTIC_CHARS_PER_TOKEN)
 
 
-def count_text(text: str, counter: Optional[Counter] = None) -> int:
+def count_text(text: str, counter: Counter | None = None) -> int:
     """Count tokens in a string.
 
     Uses ``counter`` if given, else ``tiktoken`` if installed, else a
@@ -71,7 +71,7 @@ def count_text(text: str, counter: Optional[Counter] = None) -> int:
     return _heuristic_count(text)
 
 
-def count_message(message: dict, counter: Optional[Counter] = None) -> int:
+def count_message(message: dict, counter: Counter | None = None) -> int:
     """Count tokens in a single message, including a per-message overhead.
 
     Also counts tool-call names/arguments, since those cost tokens too.
@@ -97,7 +97,7 @@ def count_message(message: dict, counter: Optional[Counter] = None) -> int:
     return total
 
 
-def count_messages(messages: list, counter: Optional[Counter] = None) -> int:
+def count_messages(messages: list, counter: Counter | None = None) -> int:
     """Count total tokens across a list of messages.
 
     Example:

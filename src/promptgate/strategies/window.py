@@ -9,14 +9,12 @@ an empty list for a non-empty input.
 
 from __future__ import annotations
 
-from typing import Optional
-
 from promptgate import counters, safety
 
 
 def apply(
     messages: list,
-    budget: Optional[int],
+    budget: int | None,
     keep_last: int = 6,
     pin=("system",),
     counter=None,

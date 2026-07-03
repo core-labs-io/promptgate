@@ -9,8 +9,6 @@ message structure (and ``tool_call_id``) stays intact.
 
 from __future__ import annotations
 
-from typing import Optional
-
 from promptgate import counters, formats
 
 
@@ -18,7 +16,7 @@ def apply(
     messages: list,
     keep_recent_turns: int = 1,
     stub_threshold_tokens: int = 120,
-    counter: Optional[callable] = None,
+    counter: callable | None = None,
 ) -> list:
     """Return a new message list with stale, large tool results stubbed out.
 
@@ -53,7 +51,9 @@ def apply(
             if token_count > stub_threshold_tokens:
                 stub = dict(message)
                 name = message.get("name") or "tool"
-                stub["content"] = f"[tool result truncated: {name} returned ~{token_count:,} tokens]"
+                stub["content"] = (
+                    f"[tool result truncated: {name} returned ~{token_count:,} tokens]"
+                )
                 new_messages.append(stub)
                 continue
         new_messages.append(message)

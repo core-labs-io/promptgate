@@ -2,14 +2,14 @@
 
 Pipeline order (fixed):
 
-    messages -> scrub secrets -> mask PII -> truncate stale tool outputs -> fit window to budget -> validated output
-                          ^ PII mapping stays in the caller's process ^
+    messages -> scrub secrets -> mask PII -> truncate stale tool outputs
+              -> fit window to budget -> validated output
+                      ^ PII mapping stays in the caller's process ^
 """
 
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 from promptgate import counters, safety
 from promptgate.report import ExplainReport
@@ -38,7 +38,7 @@ class Gate:
 
     def __init__(
         self,
-        budget: Optional[int] = None,
+        budget: int | None = None,
         compress: str = "hybrid",
         scrub=("secrets", "email", "phone"),
         on_secret: str = "warn",
@@ -57,7 +57,7 @@ class Gate:
         self.counter = counter
         self._scrubber = Scrubber(categories=self.scrub_categories, on_secret=on_secret)
 
-    def prepare(self, messages: list, pii_map: Optional[dict] = None):
+    def prepare(self, messages: list, pii_map: dict | None = None):
         """Scrub secrets/PII and fit ``messages`` to the configured budget.
 
         Returns ``(safe_messages, pii_map)``. Pass a prior ``pii_map`` back
