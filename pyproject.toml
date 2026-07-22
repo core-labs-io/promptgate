@@ -34,9 +34,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/promptgate/promptgate"
-Repository = "https://github.com/promptgate/promptgate"
-Issues = "https://github.com/promptgate/promptgate/issues"
+Homepage = "https://github.com/core-labs-io/promptgate"
+Repository = "https://github.com/core-labs-io/promptgate"
+Issues = "https://github.com/core-labs-io/promptgate/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/promptgate"]

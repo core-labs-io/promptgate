@@ -1,7 +1,7 @@
 # promptgate
 
 ![PyPI version](https://img.shields.io/pypi/v/promptgate.svg)
-![CI](https://github.com/promptgate/promptgate/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/core-labs-io/promptgate/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python versions](https://img.shields.io/pypi/pyversions/promptgate.svg)
 
