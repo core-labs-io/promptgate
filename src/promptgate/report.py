@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from promptgate._console import supports_unicode
+
 SECRET_LABELS = {
     "ANTHROPIC": ("Anthropic key", "Anthropic keys"),
     "OPENAI": ("OpenAI key", "OpenAI keys"),
@@ -84,14 +86,19 @@ class ExplainReport:
         return ", ".join(parts) + " masked (reversible)"
 
     def __str__(self) -> str:
-        lines = ["promptgate report", "─" * 17]
-        tokens_line = f"Tokens:  {self.tokens_before:,} → {self.tokens_after:,}"
+        if supports_unicode():
+            divider, arrow, ok_mark, fail_mark = "─", "→", "✓", "✗"
+        else:
+            divider, arrow, ok_mark, fail_mark = "-", "->", "[OK]", "[FAIL]"
+
+        lines = ["promptgate report", divider * 17]
+        tokens_line = f"Tokens:  {self.tokens_before:,} {arrow} {self.tokens_after:,}"
         if self.tokens_before > 0:
             tokens_line += f"  ({self.percent_saved:.0f}% saved)"
         lines.append(tokens_line)
         lines.append(f"Secrets: {self._secrets_summary()}")
         lines.append(f"PII:     {self._pii_summary()}")
-        structure_mark = "valid ✓" if self.structure_valid else "INVALID ✗"
+        structure_mark = f"valid {ok_mark}" if self.structure_valid else f"INVALID {fail_mark}"
         lines.append(f"Structure: {structure_mark}")
         if self.warnings:
             lines.append("Warnings:")

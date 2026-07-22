@@ -20,6 +20,7 @@ from math import log2
 from typing import Callable
 
 from promptgate import formats
+from promptgate._console import supports_unicode
 
 _PLACEHOLDER_RE = re.compile(r"^\[\[([A-Z][A-Z0-9_]*)_(\d+)\]\]$")
 
@@ -44,8 +45,9 @@ class SecretFound(Exception):
         super().__init__(str(self))
 
     def __str__(self) -> str:
+        sep = "—" if supports_unicode() else "-"
         return (
-            f"Secret detected: {self.label} ({self.category}) — "
+            f"Secret detected: {self.label} ({self.category}) {sep} "
             "rotate this credential, it may already be compromised."
         )
 
@@ -196,8 +198,9 @@ class Scrubber:
         return text
 
     def _emit_warning(self, found: SecretFound) -> None:
+        sep = "—" if supports_unicode() else "-"
         message = (
-            f"[promptgate] Potential secret detected: {found.label} — "
+            f"[promptgate] Potential secret detected: {found.label} {sep} "
             "treat as compromised and rotate this credential immediately."
         )
         if self.warn_callback is not None:
