@@ -66,10 +66,18 @@ print(gate.explain(messages))
 restored = gate.rehydrate(llm_reply_text, pii_map)
 ```
 
-Install: `pip install promptgate` (zero required dependencies). Add
-`pip install promptgate[openai]` for exact `tiktoken`-based token counts —
-without it, promptgate uses a pessimistic stdlib heuristic that never
-undercounts your budget.
+**Not yet published to PyPI.** Until then, install from source:
+
+```
+git clone https://github.com/core-labs-io/promptgate.git
+cd promptgate
+pip install -e .
+```
+
+Zero required dependencies. Add `pip install -e ".[openai]"` for exact
+`tiktoken`-based token counts — without it, promptgate uses a pessimistic
+stdlib heuristic that never undercounts your budget. Once published,
+installation will be a plain `pip install promptgate`.
 
 ## Save
 
